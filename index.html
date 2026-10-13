@@ -54,6 +54,11 @@ button{cursor:pointer;border-radius:10px;padding:11px 16px;font:inherit;font-wei
 .mc.sel span{color:#3a2800}
 @keyframes pul{50%{transform:scale(1.04)}}
 .pub .mc{cursor:default;min-height:54px}
+.pk{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--br);border-radius:12px;margin-bottom:8px;background:var(--in);cursor:pointer;text-align:left}
+.pk input{width:26px;height:26px;flex:none;accent-color:var(--ok)}
+.pk b.c{font-size:1.6rem;color:var(--ac);min-width:56px;text-align:center}
+canvas.firma{width:100%;height:auto;aspect-ratio:320/140;border:2px dashed var(--mut);border-radius:12px;background:#fff;touch-action:none;display:block}
+.cg3{margin-bottom:16px}
 .celda{font-size:4.5rem;font-weight:900;line-height:1;color:var(--ac);text-align:center;margin:6px 0}
 dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:10px 0;font-size:.9rem}
 dt{color:var(--mut)}dd{margin:0;font-weight:600;text-align:right}
@@ -87,7 +92,7 @@ tr.r{cursor:pointer}tr.r:hover{background:var(--in)}
  @page{size:100mm 100mm;margin:0}
  html,body{background:#fff!important;margin:0;padding:0}
  .np{display:none!important}
- #lblmodal{position:static;background:none;padding:0;display:block!important}
+ #lblmodal:not(.hide){position:static;background:none;padding:0;display:block!important}
  .lbl{border:0}
 }
 </style>
@@ -166,8 +171,8 @@ tr.r{cursor:pointer}tr.r:hover{background:var(--in)}
     <div class="tw"><table><thead><tr><th>PEDIDO</th><th>CLIENTE</th><th>DESTINO</th><th>CELDA</th><th>ESTADO</th><th>INGRESO</th></tr></thead><tbody id="lista"></tbody></table></div>
     <div class="acts" style="margin-top:14px">
       <button onclick="csv()">⬇ Exportar CSV</button>
-      <button onclick="cartel()">🖨 Cartel QR "¿Dónde está mi pedido?"</button>
-      <button onclick="probar()">🔌 Probar conexión</button>
+      <button id="bcartel" onclick="cartel()">🖨 Cartel QR "¿Dónde está mi pedido?"</button>
+      <button id="bprobar" onclick="probar()">🔌 Probar conexión</button>
       <button id="seedb" class="hide" onclick="seed()">Cargar datos de ejemplo</button>
     </div>
   </div>
@@ -189,7 +194,7 @@ tr.r{cursor:pointer}tr.r:hover{background:var(--in)}
 <script>
 /* ===== CONFIGURACIÓN ===== */
 const CONFIG={
-  FIREBASE_URL:'',   // misma base que el control de visitas (vacío = solo este equipo)
+  FIREBASE_URL:'https://retiro-de-pedidos-default-rtdb.firebaseio.com',   // misma base que el control de visitas (vacío = solo este equipo)
   PIN:'',            // PIN opcional para el mostrador
   MUEBLE:[['A1','B1','C1','D1'],['A2','B2','C2','D2'],['AB3','CD3'],['AB4','CD4']],  // filas del mueble
   DESTINOS:[
@@ -237,7 +242,7 @@ const b64d=s=>JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').repl
 function planoHTML(occ,sel,pub){
   return '<div class="mueble">'+CONFIG.MUEBLE.map(row=>'<div class="mrow">'+row.map(c=>{
     const p=occ[c],st=p&&!pub?`background:${dest(p.d).c}26;border-color:${dest(p.d).c}`:'';
-    return `<div class="mc ${sel===c?'sel':''}" style="${st}" ${pub?'':`onclick="pickCell('${c}')"`}><b>${c}</b>${pub?'':`<span>${p?esc(p.cl):'libre'}</span>`}</div>`}).join('')+'</div>').join('')+'</div>'}
+    return `<div class="mc ${(Array.isArray(sel)?sel.includes(c):sel===c)?'sel':''}" style="${st}" ${pub?'':`onclick="pickCell('${c}')"`}><b>${c}</b>${pub?'':`<span>${p?esc(p.cl):'libre'}</span>`}</div>`}).join('')+'</div>').join('')+'</div>'}
 
 /* ---- búsqueda ---- */
 function buscar(q,list,min){
@@ -261,14 +266,55 @@ async function vistaPedido(n){
   catch(e){$('pub').innerHTML='<div class="card body"><span class="tag" style="background:var(--bad)">Sin conexión</span></div>'}}
 function vistaConsulta(){
   $('pub').classList.remove('hide');
-  if(!FB){$('pub').innerHTML='<div class="card body"><h2>¿Dónde está mi pedido?</h2><p>Escaneá el código QR de la etiqueta de tu pedido para ver en qué celda está, o consultá en el mostrador.</p></div>';return}
-  $('pub').innerHTML=AVISO_LOCAL+`<div class="card"><h2>¿Dónde está mi pedido?</h2><input id="pq" placeholder="Tu nombre, N° de pedido o código" autocomplete="off" oninput="consultar(this.value)"><p class="small">Escribí al menos 3 letras de tu nombre.</p></div><div id="pr"></div>`;
+  if(!FB){$('pub').innerHTML='<div class="card body"><h2>¿Dónde está mi pedido?</h2><p>Esta consulta todavía no está habilitada. Consultá en el mostrador.</p></div>';return}
+  $('pub').innerHTML=`<div class="card"><h2>¿Dónde está mi pedido?</h2><input id="pq" placeholder="Tu nombre, empresa o código de cliente" autocomplete="off" oninput="consultar(this.value)"><p class="small">Escribí al menos 3 letras de tu nombre, o tu código de cliente.</p></div><div id="pr"></div>`;
   $('pq').focus()}
 let ct=null;
 function consultar(q){clearTimeout(ct);ct=setTimeout(async()=>{
-  try{const l=await dbGet('pedidos')||{};const r=buscar(q,l,3).slice(0,5);
-    $('pr').innerHTML=r.length?r.map(resCardPub).join(''):(norm(q).length>=3?'<div class="card body">No encontramos pedidos con ese dato. Consultá en el mostrador.</div>':'')}
-  catch(e){$('pr').innerHTML='<div class="card body">Sin conexión.</div>'}},300)}
+  try{
+    const l=await dbGet('pedidos')||{},Q=norm(q);
+    const hit=buscar(q,l,3),clientes=[];
+    hit.forEach(p=>{const k=norm(p.cl);if(!clientes.includes(k))clientes.push(k)});
+    const g=clientes.slice(0,3).map((k,i)=>grupoHTML(i,Object.entries(l).filter(([kk,p])=>norm(p.cl)===k)));
+    $('pr').innerHTML=g.length?g.join(''):(Q.length>=3?'<div class="card body">No encontramos pedidos con ese dato. Consultá en el mostrador.</div>':'');
+    g.forEach((_,i)=>{if($('sg'+i))initFirma('sg'+i)})
+  }catch(e){$('pr').innerHTML='<div class="card body">Sin conexión.</div>'}},300)}
+function grupoHTML(i,lista){
+  const nombre=lista[0][1].cl,act=lista.filter(([k,p])=>p.e==='LISTO').sort((a,b)=>a[1].t-b[1].t),ret=lista.length-act.length;
+  if(!act.length)return `<div class="card body cg3"><h3 style="margin:0">${esc(nombre)}</h3><p>No tiene pedidos pendientes de retiro.</p><p class="small">${ret} pedido(s) ya retirado(s).</p></div>`;
+  return `<div class="card cg3" id="g${i}"><h3 style="margin:0 0 4px">${esc(nombre)}</h3>
+  <p class="small" style="margin:0 0 10px">${act.length} pedido(s) para retirar. Mirá en qué celda está cada uno:</p>
+  ${planoHTML({},act.map(([k,p])=>p.c),true)}
+  <div style="margin-top:14px">${act.map(([k,p])=>`<label class="pk"><input type="checkbox" data-g="${i}" value="${k}"><b class="c">${esc(p.c)}</b><div><b>Pedido N° ${esc(p.n)}</b><div>${tag(p.d)}</div></div></label>`).join('')}</div>
+  <p class="small" style="margin:12px 0 4px"><b>Cuando lo retires,</b> tildá lo que te llevás y firmá:</p>
+  <label>Nombre y apellido de quien retira</label><input id="rn${i}" autocomplete="off">
+  <label>Firma</label><canvas id="sg${i}" class="firma"></canvas>
+  <button style="margin-top:6px" onclick="initFirma('sg${i}')">Borrar firma</button>
+  <div class="err" id="rm${i}"></div>
+  <button class="pri full" id="cb${i}" onclick="confirmar(${i})">✔ Confirmar retiro</button></div>`}
+const FIRMAS={};
+function initFirma(id){
+  const c=$(id);if(!c)return;const x=c.getContext('2d');c.width=320;c.height=140;
+  x.fillStyle='#fff';x.fillRect(0,0,320,140);x.lineWidth=2.6;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#000';
+  let d=false;FIRMAS[id]=false;
+  const pt=e=>{const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]};
+  c.onpointerdown=e=>{d=true;c.setPointerCapture(e.pointerId);const[a,b]=pt(e);x.beginPath();x.moveTo(a,b);x.lineTo(a+.1,b+.1);x.stroke();FIRMAS[id]=true;e.preventDefault()};
+  c.onpointermove=e=>{if(!d)return;const[a,b]=pt(e);x.lineTo(a,b);x.stroke();e.preventDefault()};
+  c.onpointerup=c.onpointercancel=()=>{d=false}}
+async function confirmar(i){
+  const keys=[...document.querySelectorAll(`input[data-g="${i}"]:checked`)].map(e=>e.value),nom=$('rn'+i).value.trim(),msg=$('rm'+i);
+  if(!keys.length){msg.textContent='Tildá al menos un pedido.';return}
+  if(!nom){msg.textContent='Escribí tu nombre y apellido.';return}
+  if(!FIRMAS['sg'+i]){msg.textContent='Falta tu firma.';return}
+  msg.textContent='';$('cb'+i).disabled=true;
+  try{
+    const firma=$('sg'+i).toDataURL('image/png'),now=Date.now(),ok=[];
+    for(const k of keys){const p=await dbGet('pedidos/'+k);
+      if(p&&p.e==='LISTO'){await dbSet('firmas/'+k,firma);await dbSet('pedidos/'+k,{...p,e:'RETIRADO',f:now,rb:nom,fi:1});ok.push(p)}}
+    $('g'+i).innerHTML=ok.length?`<div class="body" style="text-align:center"><span class="status ok" style="background:var(--ok);color:#fff;padding:4px 12px;border-radius:99px;font-weight:800">✔ RETIRO REGISTRADO</span>
+      <h3>${esc(nom)}</h3>${ok.map(p=>`<div>Pedido N° ${esc(p.n)} · celda ${esc(p.c)}</div>`).join('')}<p class="small">${fh(now)}</p></div>`
+      :'<div class="body" style="text-align:center"><p>Esos pedidos ya habían sido retirados.</p></div>'
+  }catch(e){msg.textContent='No se pudo registrar. Intentá de nuevo.';$('cb'+i).disabled=false}}
 
 /* El QR de la etiqueta lleva los datos adentro: funciona en cualquier celular sin base de datos */
 async function vistaSnapshot(txt){
@@ -322,11 +368,12 @@ function detalle(){
   d.innerHTML=`<h2>Pedido N° ${esc(p.n)} ${estTag(p)}</h2>
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b style="font-size:1.1rem">${esc(p.cl)}</b><div class="small">Código ${esc(p.co)||'—'}</div></div>${tag(p.d)}</div>
   <div class="celda">${p.e==='LISTO'?esc(p.c):'—'}</div>
-  <dl><dt>Ingreso</dt><dd>${fh(p.t)}</dd>${p.f?`<dt>Retirado</dt><dd>${fh(p.f)}</dd>`:''}${p.o?`<dt>Obs.</dt><dd>${esc(p.o)}</dd>`:''}</dl>
+  <dl><dt>Ingreso</dt><dd>${fh(p.t)}</dd>${p.f?`<dt>Retirado</dt><dd>${fh(p.f)}</dd>`:''}${p.rb?`<dt>Retiró</dt><dd>${esc(p.rb)}</dd>`:''}${p.o?`<dt>Obs.</dt><dd>${esc(p.o)}</dd>`:''}</dl>
   ${p.e==='LISTO'?`<div class="row"><div><label>Cambiar destino</label><select onchange="cambiar('d',this.value)">${CONFIG.DESTINOS.map(x=>`<option ${x.k===p.d?'selected':''}>${x.k}</option>`).join('')}</select></div>
   <div><label>Mover a celda</label><select onchange="cambiar('c',this.value)"><option>${esc(p.c)}</option>${libres.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
   <div class="acts"><button class="pri" onclick="retirar()">✔ Marcar RETIRADO</button><button onclick="reimprimir()">🖨 Etiqueta</button></div>`
-  :`<div class="acts"><button onclick="reabrir()">↩ Volver a EN ESPERA</button></div>`}`}
+  :`${p.fi?'<div><div class="small">Firma</div><img id="fimg" alt="firma" style="width:100%;max-width:260px;background:#fff;border:1px solid var(--br);border-radius:8px"></div>':''}<div class="acts"><button onclick="reabrir()">↩ Volver a EN ESPERA</button></div>`}`;
+  if(p.e!=='LISTO'&&p.fi){const k=selKey;dbGet('firmas/'+k).then(f=>{const im=$('fimg');if(im&&selKey===k&&typeof f==='string'&&f.startsWith('data:image/png;base64,'))im.src=f}).catch(()=>{})}}
 async function cambiar(f,v){
   const p=P[selKey];if(!p||p[f]===v)return;
   try{await dbSet('pedidos/'+selKey,{...p,[f]:v});await refresh()}catch(e){alert('No se pudo guardar el cambio.')}}
@@ -391,7 +438,7 @@ const reimprimir=()=>{if(P[selKey])etiqueta(P[selKey])};
 function cartel(){
   if(!FB){alert('El cartel de búsqueda por nombre necesita una base de datos compartida. Por ahora usá las etiquetas con QR de cada pedido, que funcionan solas.');return}
   $('lblArea').innerHTML=`<div class="lbl"><div class="t">¿DÓNDE ESTÁ MI PEDIDO?</div>
-  <div class="q" style="width:60mm;height:60mm"></div><div class="pn" style="font-size:5.5mm">ESCANEÁ Y BUSCÁ POR NOMBRE<br>O N° DE PEDIDO</div><div class="s">Retiro por mostrador</div></div>`;
+  <div class="q" style="width:60mm;height:60mm"></div><div class="pn" style="font-size:5.5mm">ESCANEÁ, BUSCÁ TU NOMBRE<br>O CÓDIGO Y FIRMÁ EL RETIRO</div><div class="s">Retiro de pedidos · mostrador</div></div>`;
   qr($('lblArea').querySelector('.q'),base()+'#consulta');
   $('lblmodal').classList.remove('hide')}
 
@@ -403,8 +450,8 @@ async function probar(){
   catch(e){alert('❌ No se pudo conectar. Revisá la dirección y que las reglas tengan .read y .write en true.')}}
 function csv(){
   const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
-  const rows=Object.values(P).sort((a,b)=>a.t-b.t).map(p=>[p.n,p.cl,p.co,p.d,p.c,p.e,fh(p.t),p.f?fh(p.f):'',p.o].map(q).join(','));
-  const out=['Pedido,Cliente,Codigo,Destino,Celda,Estado,Ingreso,Retiro,Observaciones'].concat(rows).join('\n');
+  const rows=Object.values(P).sort((a,b)=>a.t-b.t).map(p=>[p.n,p.cl,p.co,p.d,p.c,p.e,fh(p.t),p.f?fh(p.f):'',p.rb||'',p.o].map(q).join(','));
+  const out=['Pedido,Cliente,Codigo,Destino,Celda,Estado,Ingreso,Retiro,Retiro por,Observaciones'].concat(rows).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+out],{type:'text/csv'}));
   a.download='pedidos-'+new Date().toISOString().slice(0,10)+'.csv';a.click()}
 async function seed(){
@@ -413,7 +460,7 @@ async function seed(){
   refresh()}
 
 /* ---- inicio ---- */
-function iniciarPanel(){$('panel').classList.remove('hide');refresh();setInterval(refresh,15000);$('q').focus()}
+function iniciarPanel(){$('panel').classList.remove('hide');$('bcartel').classList.toggle('hide',!FB);$('bprobar').classList.toggle('hide',!FB);refresh();setInterval(refresh,15000);$('q').focus()}
 function checkPin(){
   if($('pin').value===CONFIG.PIN){try{sessionStorage.setItem('pinr','1')}catch(e){}$('gate').classList.add('hide');iniciarPanel()}
   else $('pinerr').textContent='PIN incorrecto'}
