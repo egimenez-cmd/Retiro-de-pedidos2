@@ -154,7 +154,7 @@ tr.r{cursor:pointer}tr.r:hover{background:var(--in)}
       <div class="card">
         <h2>Mueble <span class="small" id="mcnt"></span></h2>
         <div id="plano"></div>
-        <p class="small">Tocá una celda ocupada para ver el pedido o una libre para asignarla.</p>
+        <p class="small">Tocá una celda ocupada para ver sus pedidos o una libre para asignarla. Cada celda admite varios pedidos.</p>
       </div>
       <div class="card hide" id="det"></div>
     </div>
@@ -241,8 +241,8 @@ const b64d=s=>JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').repl
 /* ---- mueble ---- */
 function planoHTML(occ,sel,pub){
   return '<div class="mueble">'+CONFIG.MUEBLE.map(row=>'<div class="mrow">'+row.map(c=>{
-    const p=occ[c],st=p&&!pub?`background:${dest(p.d).c}26;border-color:${dest(p.d).c}`:'';
-    return `<div class="mc ${(Array.isArray(sel)?sel.includes(c):sel===c)?'sel':''}" style="${st}" ${pub?'':`onclick="pickCell('${c}')"`}><b>${c}</b>${pub?'':`<span>${p?esc(p.cl):'libre'}</span>`}</div>`}).join('')+'</div>').join('')+'</div>'}
+    const L=occ[c]||[],p=L[0],col=p?(L.every(x=>x.d===p.d)?dest(p.d).c:'#64748b'):'',st=p&&!pub?`background:${col}26;border-color:${col}`:'';
+    return `<div class="mc ${(Array.isArray(sel)?sel.includes(c):sel===c)?'sel':''}" style="${st}" ${pub?'':`onclick="pickCell('${c}')"`}><b>${c}</b>${pub?'':`<span>${L.length>1?L.length+' pedidos':p?esc(p.cl):'libre'}</span>`}</div>`}).join('')+'</div>').join('')+'</div>'}
 
 /* ---- búsqueda ---- */
 function buscar(q,list,min){
@@ -327,7 +327,8 @@ async function vistaSnapshot(txt){
 /* ---- panel de mostrador ---- */
 let P={},selKey=null,destSel=CONFIG.DESTINOS[0].k,fDest='',fEst='LISTO';
 const activos=()=>Object.values(P).filter(p=>p.e==='LISTO');
-const occMap=()=>{const o={};activos().forEach(p=>o[p.c]=p);return o};
+const occMap=()=>{const o={};activos().forEach(p=>{(o[p.c]=o[p.c]||[]).push(p)});return o};
+let selCell=null;
 async function refresh(){
   try{P=(await dbGet('pedidos'))||{};$('modo').textContent=FB?'🟢 Base de datos compartida conectada':'💻 Datos guardados en este equipo · los QR de las etiquetas se leen desde cualquier celular'}
   catch(e){$('modo').textContent='🔴 Sin conexión con la base de datos'}
@@ -337,7 +338,7 @@ function render(){
   $('s1').textContent=activos().length;
   $('s2').textContent=Object.values(P).filter(p=>p.e==='RETIRADO'&&p.f&&new Date(p.f).toDateString()===hoy).length;
   $('s3').textContent=n;$('s4').textContent=CELDAS.length-n;$('mcnt').textContent=`· ${n} ocupadas / ${CELDAS.length-n} libres`;
-  const sel=selKey&&P[selKey]&&P[selKey].e==='LISTO'?P[selKey].c:null;
+  const sel=selKey&&P[selKey]&&P[selKey].e==='LISTO'?P[selKey].c:selCell;
   $('plano').innerHTML=planoHTML(occ,sel,false);
   chips();celdaSel();lista();detalle();
   $('seedb').classList.toggle('hide',Object.keys(P).length>0)}
@@ -351,27 +352,35 @@ function setEst(e){fEst=e;['LISTO','RETIRADO',''].forEach((x,i)=>$('e'+(i+1)).cl
 function celdaSel(){
   const cur=$('cel').value,occ=occMap();
   const libres=CELDAS.filter(c=>!occ[c]);
-  $('cel').innerHTML=libres.length?libres.map(c=>`<option>${c}</option>`).join(''):'<option value="">Sin celdas libres</option>';
-  if(cur&&libres.includes(cur))$('cel').value=cur}
+  $('cel').innerHTML=CELDAS.map(c=>`<option value="${c}">${c} · ${occ[c]?'ocupada ('+occ[c].length+')':'libre'}</option>`).join('');
+  if(cur&&CELDAS.includes(cur))$('cel').value=cur;else if(libres.length)$('cel').value=libres[0]}
 function lista(){
   const l=Object.entries(P).filter(([k,p])=>(!fEst||p.e===fEst)&&(!fDest||p.d===fDest)).sort((a,b)=>b[1].t-a[1].t).slice(0,200);
   $('lista').innerHTML=l.length?l.map(([k,p])=>`<tr class="r" onclick="pickPedido('${k}')"><td><b>${esc(p.n)}</b></td><td>${esc(p.cl)}</td><td>${tag(p.d)}</td><td><b>${p.e==='LISTO'?esc(p.c):'—'}</b></td><td>${estTag(p)}</td><td>${fh(p.t)}</td></tr>`).join(''):'<tr><td colspan="6" class="small" style="text-align:center;padding:20px">Sin pedidos para mostrar.</td></tr>'}
 function pickCell(c){
-  const p=occMap()[c];
-  if(p){pickPedido(pkey(p.n))}else{selKey=null;render();$('cel').value=c;$('ped').focus()}}
-function pickPedido(k){selKey=k;render();$('det').scrollIntoView({behavior:'smooth',block:'nearest'})}
+  const L=occMap()[c]||[];
+  if(L.length===1){pickPedido(pkey(L[0].n))}
+  else if(L.length>1){selKey=null;selCell=c;render();$('det').scrollIntoView({behavior:'smooth',block:'nearest'})}
+  else{selKey=null;selCell=null;render();$('cel').value=c;$('ped').focus()}}
+function addAqui(c){selKey=null;selCell=null;render();$('cel').value=c;$('ped').focus()}
+function pickPedido(k){selKey=k;selCell=null;render();$('det').scrollIntoView({behavior:'smooth',block:'nearest'})}
 function detalle(){
-  const p=P[selKey],d=$('det');
-  if(!p){d.classList.add('hide');return}
+  const p=P[selKey],d=$('det'),occ=occMap();
+  if(!p){
+    const L=selCell&&occ[selCell];
+    if(!L){d.classList.add('hide');return}
+    d.classList.remove('hide');
+    d.innerHTML=`<h2>Celda ${esc(selCell)} <span class="small">· ${L.length} pedido(s) en espera</span></h2>
+    ${L.sort((a,b)=>a.t-b.t).map(x=>`<div class="sr" onclick="pickPedido('${pkey(x.n)}')"><div><b>${esc(x.cl)}</b> <span class="small">N° ${esc(x.n)}</span><div>${tag(x.d)}</div></div><b class="c">${esc(x.c)}</b></div>`).join('')}
+    <div class="acts"><button class="pri" onclick="addAqui('${esc(selCell)}')">➕ Asignar otro pedido a esta celda</button></div>`;return}
   d.classList.remove('hide');
-  const occ=occMap(),libres=CELDAS.filter(c=>!occ[c]);
   d.innerHTML=`<h2>Pedido N° ${esc(p.n)} ${estTag(p)}</h2>
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b style="font-size:1.1rem">${esc(p.cl)}</b><div class="small">Código ${esc(p.co)||'—'}</div></div>${tag(p.d)}</div>
   <div class="celda">${p.e==='LISTO'?esc(p.c):'—'}</div>
   <dl><dt>Ingreso</dt><dd>${fh(p.t)}</dd>${p.f?`<dt>Retirado</dt><dd>${fh(p.f)}</dd>`:''}${p.rb?`<dt>Retiró</dt><dd>${esc(p.rb)}</dd>`:''}${p.o?`<dt>Obs.</dt><dd>${esc(p.o)}</dd>`:''}</dl>
   ${p.e==='LISTO'?`<div class="row"><div><label>Cambiar destino</label><select onchange="cambiar('d',this.value)">${CONFIG.DESTINOS.map(x=>`<option ${x.k===p.d?'selected':''}>${x.k}</option>`).join('')}</select></div>
-  <div><label>Mover a celda</label><select onchange="cambiar('c',this.value)"><option>${esc(p.c)}</option>${libres.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
-  <div class="acts"><button class="pri" onclick="retirar()">✔ Marcar RETIRADO</button><button onclick="reimprimir()">🖨 Etiqueta</button></div>`
+  <div><label>Mover a celda</label><select onchange="cambiar('c',this.value)">${CELDAS.map(c=>`<option value="${c}" ${c===p.c?'selected':''}>${c}${occ[c]?' ('+occ[c].length+')':''}</option>`).join('')}</select></div></div>
+  <div class="acts"><button class="pri" onclick="retirar()">✔ Marcar RETIRADO</button><button onclick="reimprimir()">🖨 Etiqueta</button><button onclick="addAqui('${esc(p.c)}')">➕ Otro pedido en ${esc(p.c)}</button></div>`
   :`${p.fi?'<div><div class="small">Firma</div><img id="fimg" alt="firma" style="width:100%;max-width:260px;background:#fff;border:1px solid var(--br);border-radius:8px"></div>':''}<div class="acts"><button onclick="reabrir()">↩ Volver a EN ESPERA</button></div>`}`;
   if(p.e!=='LISTO'&&p.fi){const k=selKey;dbGet('firmas/'+k).then(f=>{const im=$('fimg');if(im&&selKey===k&&typeof f==='string'&&f.startsWith('data:image/png;base64,'))im.src=f}).catch(()=>{})}}
 async function cambiar(f,v){
@@ -379,20 +388,18 @@ async function cambiar(f,v){
   try{await dbSet('pedidos/'+selKey,{...p,[f]:v});await refresh()}catch(e){alert('No se pudo guardar el cambio.')}}
 async function retirar(){
   const p=P[selKey];if(!p)return;
-  try{await dbSet('pedidos/'+selKey,{...p,e:'RETIRADO',f:Date.now()});selKey=null;$('q').value='';$('sres').innerHTML='';await refresh()}catch(e){alert('No se pudo registrar el retiro.')}}
+  try{await dbSet('pedidos/'+selKey,{...p,e:'RETIRADO',f:Date.now()});const c=p.c;selKey=null;$('q').value='';$('sres').innerHTML='';await refresh();if((occMap()[c]||[]).length){selCell=c;render()}}catch(e){alert('No se pudo registrar el retiro.')}}
 async function reabrir(){
   const p=P[selKey];if(!p)return;
-  if(occMap()[p.c]){alert('La celda '+p.c+' ya fue ocupada. Reasigná una celda libre al reabrir.');return}
   try{const q={...p,e:'LISTO'};delete q.f;await dbSet('pedidos/'+selKey,q);await refresh()}catch(e){alert('Error.')}}
 async function guardar(imprimir){
   const g=id=>$(id).value.trim(),n=g('ped'),cel=$('cel').value;
   if(!n||!g('cli')){$('err').textContent='Completá N° de pedido y cliente.';return}
-  if(!cel){$('err').textContent='No hay celdas libres.';return}
+  if(!cel){$('err').textContent='Elegí una celda.';return}
   $('err').textContent='';
   try{
     P=(await dbGet('pedidos'))||{};const k=pkey(n);
     if(P[k]&&P[k].e==='LISTO'){$('err').textContent='Ya hay un pedido en espera con ese número.';render();return}
-    if(occMap()[cel]){$('err').textContent='La celda '+cel+' acaba de ocuparse. Elegí otra.';render();return}
     const p={n,cl:g('cli').toUpperCase(),co:g('cod'),d:destSel,c:cel,e:'LISTO',t:Date.now(),o:g('obs')};
     await dbSet('pedidos/'+k,p);
     $('res').classList.remove('hide');
